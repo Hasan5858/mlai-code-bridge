@@ -36,22 +36,36 @@ Verified against the live service: streaming SSE, non-stream JSON, `tools` / `to
 
 ## Requirements
 
-* macOS with the ML AI Code desktop app installed (the CLI ships inside the app bundle)
-* a signed-in device:
-  ```bash
-  node "/Applications/ML AI Code.app/Contents/Resources/engine/bin/mlai.mjs" login
-  node "/Applications/ML AI Code.app/Contents/Resources/engine/bin/mlai.mjs" whoami
-  ```
-  The token lands in the login Keychain as service `ML AI Code`, account `device-token`.
-* Python 3.9+ (standard library only — no pip installs; the macOS system `python3` is enough)
+* an ML AI Code account on a device with a signed-in CLI or app
+  * **macOS:** the desktop app ships the CLI
+    ```bash
+    node "/Applications/ML AI Code.app/Contents/Resources/engine/bin/mlai.mjs" login
+    ```
+    the credential lands in the login Keychain (service `ML AI Code`, account `device-token`)
+  * **Linux / Windows:** `npm install -g mlai-code && mlai login`
+    (secret store on Linux, `%USERPROFILE%\.mlai\.device-token` on Windows)
+* Python 3.9+ (standard library only — no pip installs)
+
+## Platforms
+
+| OS | Script | Autostart | Status |
+|---|---|---|---|
+| macOS | `mlai_bridge.py` | launchd (`install.sh`) | tested |
+| Windows 10/11 | same script | Scheduled Task (`install.ps1`) | ported, **not verified by the maintainer** — see [docs/windows.md](docs/windows.md) |
+| Linux | same script | systemd user unit — see [docs/linux.md](docs/linux.md) | ported, not verified |
+
+The bridge is pure standard-library Python: the only OS-specific branch is reading the device
+credential from Keychain / libsecret / the token file.
 
 ## Install
 
 ```bash
-git clone https://github.com/<you>/mlai-code-bridge.git
+git clone https://github.com/Hasan5858/mlai-code-bridge.git
 cd mlai-code-bridge
-./install.sh                 # writes ~/Library/LaunchAgents/ai.mlai-bridge.plist and loads it
+./install.sh                 # macOS: writes ~/Library/LaunchAgents/ai.mlai-bridge.plist and loads it
 ```
+
+Windows: `powershell -ExecutionPolicy Bypass -File .\install.ps1` — see [docs/windows.md](docs/windows.md).
 
 The daemon itself runs from `~/.mlai-shim/app/mlai_bridge.py` — a copy `install.sh` makes for you,
 because macOS refuses to let a LaunchAgent read an external volume (`Operation not permitted`).

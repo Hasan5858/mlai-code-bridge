@@ -79,26 +79,45 @@ def project_id() -> str:
         return pid
 
 
+def _secret_store_token() -> str:
+    """The credential `mlai login` stores, from the OS secret store where there is one.
+
+    macOS: login Keychain (the app and CLI write service "ML AI Code", account "device-token").
+    Linux: libsecret via secret-tool. Windows: none — the CLI falls back to a file, see below.
+    """
+    try:
+        if sys.platform == "darwin":
+            cmd = ["security", "find-generic-password", "-s", "ML AI Code", "-a", "device-token", "-w"]
+        elif sys.platform.startswith("linux"):
+            cmd = ["secret-tool", "lookup", "service", "ML AI Code", "account", "device-token"]
+        else:
+            return ""
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return out.stdout.strip() if out.returncode == 0 else ""
+    except Exception as exc:  # noqa: BLE001 - a missing helper is not fatal
+        log(f"secret store read failed: {exc}")
+        return ""
+
+
 def device_token() -> str:
-    """The credential `mlai login` stores: Keychain on macOS, file fallback."""
+    """Device credential: MLAI_TOKEN, then the OS secret store, then the CLI's token file."""
     tok = os.environ.get("MLAI_TOKEN")
     if tok:
         return tok.strip()
-    if sys.platform == "darwin":
-        try:
-            out = subprocess.run(
-                ["security", "find-generic-password", "-s", "ML AI Code", "-a", "device-token", "-w"],
-                capture_output=True, text=True, timeout=10,
-            )
-            if out.returncode == 0 and out.stdout.strip():
-                return out.stdout.strip()
-        except Exception as exc:  # pragma: no cover - platform specific
-            log(f"keychain read failed: {exc}")
+    tok = _secret_store_token()
+    if tok:
+        return tok
     for candidate in (Path.home() / ".mlai" / ".device-token", STATE / "device-token"):
-        if candidate.exists():
-            return candidate.read_text().strip()
+        try:
+            if candidate.exists():
+                value = candidate.read_text(encoding="utf-8").strip()
+                if value:
+                    return value
+        except OSError:
+            continue
     raise RuntimeError(
-        "Not signed in. Run: node '/Applications/ML AI Code.app/Contents/Resources/engine/bin/mlai.mjs' login"
+        "Not signed in on this device. Run `mlai login` (npm install -g mlai-code, or the app's CLI), "
+        "or set MLAI_TOKEN to the device token."
     )
 
 
