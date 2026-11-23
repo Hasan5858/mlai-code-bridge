@@ -33,14 +33,53 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 STATE = Path(os.environ.get("MLAI_SHIM_HOME", Path.home() / ".mlai-shim"))
-SERVER = os.environ.get("MLAI_SERVER", "https://mlai-mini-code.vercel.app").rstrip("/")
-SERVER = os.environ.get("MLAI_SERVER_OVERRIDE", SERVER).rstrip("/")
+
+# The device token is only ever sent to these hosts. code.ml.ai is the product origin;
+# mlai-mini-code.vercel.app is the desktop CLI's own DEFAULT_URL (same deployment, 307s to
+# code.ml.ai) and is kept only so older configs keep working.
+DEFAULT_SERVER = "https://code.ml.ai"
+ALLOWED_HOSTS = {"code.ml.ai", "mlai-mini-code.vercel.app", "127.0.0.1", "localhost"}
+
+
+def _validate_server(raw: str) -> str:
+    """An origin only: https (or http on loopback for tests), allowlisted host, no path/query."""
+    u = urllib.parse.urlparse(str(raw).rstrip("/"))
+    if u.path not in ("", "/") or u.query or u.fragment:
+        raise SystemExit(f"MLAI_SERVER must be a bare origin, got {raw!r}")
+    loopback = u.hostname in ("127.0.0.1", "localhost")
+    if u.scheme != "https" and not (loopback and u.scheme == "http"):
+        raise SystemExit("MLAI_SERVER must use https")
+    if not loopback and u.hostname not in ALLOWED_HOSTS and os.environ.get("MLAI_ALLOW_CUSTOM_SERVER") != "1":
+        raise SystemExit(
+            f"refusing MLAI_SERVER host {u.hostname!r}: this device token is only meant for ml.ai hosts.\n"
+            "Set MLAI_ALLOW_CUSTOM_SERVER=1 only if you are pointing at your own proxy."
+        )
+    return f"{u.scheme}://{u.netloc}"
+
+
+SERVER = _validate_server(
+    os.environ.get("MLAI_SERVER_OVERRIDE") or os.environ.get("MLAI_SERVER") or DEFAULT_SERVER
+)
+
+
+class _SameOriginRedirects(urllib.request.HTTPRedirectHandler):
+    """Follow redirects only inside the same origin — never carry Authorization to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        if (old.scheme, old.netloc) != (new.scheme, new.netloc):
+            raise RuntimeError(f"refusing a cross-host redirect ({old.netloc} -> {new.netloc})")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_opener = urllib.request.build_opener(_SameOriginRedirects)
 PROTOCOL = 1
 CLIENT_VERSION = os.environ.get("MLAI_CLIENT_VERSION", "0.3.2")
 PORT = int(os.environ.get("MLAI_SHIM_PORT", "8210"))
@@ -134,7 +173,7 @@ def api_request(path: str, body=None, token: str | None = None, timeout: int = 6
         headers["Authorization"] = "Bearer " + token
     req = urllib.request.Request(SERVER + path, data=data, headers=headers, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as res:
+        with _opener.open(req, timeout=timeout) as res:
             return res.status, json.loads(res.read().decode() or "{}")
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", "replace")
@@ -287,7 +326,7 @@ class Handler(BaseHTTPRequestHandler):
                 "Authorization": "Bearer " + run["token"],
             }, method="POST")
             try:
-                res = urllib.request.urlopen(req, timeout=300)
+                res = _opener.open(req, timeout=300)
             except urllib.error.HTTPError as exc:
                 raw = exc.read().decode("utf-8", "replace")
                 if exc.code in (401, 403, 409) and attempt == 0:
@@ -341,7 +380,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def selftest() -> int:
     run = current_run()
-    print("run:", run["run_id"], "gateway:", run["gateway"], "ttl_h:", round((run["expires"] - time.time()) / 3600, 2))
+    print("server:", SERVER, "| run:", run["run_id"], "| gateway:", run["gateway"],
+          "| ttl_h:", round((run["expires"] - time.time()) / 3600, 2))
     body = json.dumps({"model": MODEL_ID, "messages": [{"role": "user", "content": "Reply with exactly: PONG"}],
                        "max_tokens": 300}).encode()
     req = urllib.request.Request(run["gateway"].rstrip("/") + "/chat/completions", data=body, headers={
@@ -383,7 +423,7 @@ def main() -> int:
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, shutdown)
 
-    log(f"listening on http://127.0.0.1:{args.port}/v1 (key file {keyfile})")
+    log(f"upstream {SERVER} | listening on http://127.0.0.1:{args.port}/v1 (key {keyfile})")
     try:
         srv.serve_forever()
     finally:

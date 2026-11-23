@@ -10,11 +10,30 @@ ML AI Code ships no model API. Its public API is routines only (`/api/routines/{
 
 ```bash
 curl -s https://code.ml.ai/api/model/v1/models        # 200 — public list: [{"id":"mlai-code"}]
+curl -s -X POST https://code.ml.ai/api/laptop \
+  -H "authorization: Bearer $MLAI_DEVICE_TOKEN" -d '{"action":"start", ...}'   # 200 — mints a run token
 curl -s -X POST https://code.ml.ai/api/model/v1/chat/completions \
-  -H 'authorization: Bearer ml-ai_<your-token>' ...    # 401 run_token_invalid
+  -H "authorization: Bearer $MLAI_PERSONAL_TOKEN" ...    # 401 run_token_invalid
 ```
 
 The gateway only accepts a **per-run token** that the desktop app/CLI mints when a "laptop run" starts, and those tokens live 12 hours. So `base_url` + API key never works out of the box.
+
+## Which host receives your device token
+
+Exactly one origin: **`https://code.ml.ai`**, the product domain. If you are reviewing the code and
+expect something else: the ML AI Code desktop CLI's own `DEFAULT_URL` is
+`https://mlai-mini-code.vercel.app` — the *same deployment*, which 307-redirects to `code.ml.ai`.
+That hostname can therefore show up in an older copy of this bridge, in the app bundle
+(`engine/src/home.mjs`) and in the bundled client SDK. It is not a third-party endpoint.
+
+Hardening that ships here:
+
+* `MLAI_SERVER` is validated — https, a bare origin, and it must be `code.ml.ai` or
+  `mlai-mini-code.vercel.app` unless you opt out with `MLAI_ALLOW_CUSTOM_SERVER=1`
+* redirects are followed only inside the same origin, so `Authorization` can never be forwarded
+  to a host you did not configure
+* the credential stays in Keychain / libsecret / the CLI's token file; nothing secret is written
+  into the repo or into the client config
 
 ## What this bridge does
 
