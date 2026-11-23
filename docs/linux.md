@@ -44,7 +44,8 @@ Check: `curl -s http://127.0.0.1:8210/health`
 
 ## Notes
 
-* Not verified by the maintainer (written on macOS). The Python is identical; the only Linux-specific
-  piece is the Secret Service lookup.
+* **Verified:** a user ran this end-to-end on Linux and reported everything working (install, systemd
+  unit, `/v1/models`, chat completions through their client). Written on macOS by the maintainer, so
+  the Linux-specific branch is the Secret Service lookup.
 * The key file is `~/.mlai-shim/key`; use it as your `api_key`.
 * Uninstall: `systemctl --user disable --now mlai-bridge.service` and remove the unit.

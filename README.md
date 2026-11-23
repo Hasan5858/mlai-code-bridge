@@ -69,9 +69,12 @@ Verified against the live service: streaming SSE, non-stream JSON, `tools` / `to
 
 | OS | Script | Autostart | Status |
 |---|---|---|---|
-| macOS | `mlai_bridge.py` | launchd (`install.sh`) | tested |
-| Windows 10/11 | same script | Scheduled Task (`install.ps1`) | ported, **not verified by the maintainer** — see [docs/windows.md](docs/windows.md) |
-| Linux | same script | systemd user unit — see [docs/linux.md](docs/linux.md) | ported, not verified |
+| macOS | `mlai_bridge.py` | launchd (`install.sh`) | tested by the maintainer |
+| Linux | same script | systemd user unit — see [docs/linux.md](docs/linux.md) | **tested by a user, working** |
+| Windows 10/11 | same script | Scheduled Task (`install.ps1`) | ported, **not verified yet** — see [docs/windows.md](docs/windows.md) |
+
+Linux needs no Node.js and no desktop app: the CLI (`npm i -g mlai-code`) writes the device
+credential and the bridge reads it from libsecret or `~/.mlai/.device-token`.
 
 The bridge is pure standard-library Python: the only OS-specific branch is reading the device
 credential from Keychain / libsecret / the token file.
